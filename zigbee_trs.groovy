@@ -10,15 +10,17 @@
  *  on an "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied. See the License
  *  for the specific language governing permissions and limitations under the License.
  *  CONNECT: short press home (turn on), long press home (enter settings), go to setting 5 (wifi logo), press home (only wifi now showing), long press home (wifi now blinking) 
-
  * KNOWN ERRORS
  * 1 - groovy.lang.GroovyRuntimeException: Cannot read write-only property: schedule on line 544 (refresh)        
  *     schedule("${rnd.nextInt(59)} ${rnd.nextInt(59)} 1/3 * * ? *", 'checkPresence')
  *
  * 
  * UNKNOWN MESSAGES
- * 0104 EF00 01 01 0040 00 B06F 01 00 0000 24 01 0000 <--after configure
+ * 0104 EF00 01 01 0040 00 B06F 01 00 0000 24 01 004E <--after configure
+ * 0104 EF00 01 01 0040 00 B06F 01 00 0000 24 01 0000
+ * The following seems temperature reports. Cluster 0203?
  * 0104 EF00 01 01 0040 00 B06F 01 00 0000 01 01 174C720200040000000F <-- after thermostat mode setingz
+ * 0104 EF00 01 01 0040 00 B06F 01 00 0000 01 01 18C00302000400000122
 **/
 
 import hubitat.zigbee.zcl.DataType
@@ -129,14 +131,20 @@ def parse(String description) {
 							sendEvent(name: "thermostatOperatingState", value: "heating")}
 						else { sendEvent(name: "thermostatOperatingState", value: "idle")}
 					break
-								
-					case '0302': //Temperature
+
+                    case '0203': //@Room Temperature report?
 						String temperature = HexUtils.hexStringToInt(tdata["data"].join())/ 10
-                        displayInfoLog("CURRENT ROOM TEMP: ${Temperature}")
+                        displayInfoLog("SET ROOM TEMP ACK: ${Temperature}")
 						sendEvent(name: "temperature", value: temperature, unit: "C" )
 						if (device.currentValue("thermostatMode") != "off" && temperature.toFloat() < device.currentValue("thermostatSetpoint").toFloat()) {
 							sendEvent(name: "thermostatOperatingState", value: "heating")}
 						else { sendEvent(name: "thermostatOperatingState", value: "idle")}
+					break
+
+					case '0302': //@Set Temperature aknowledge?
+						String temperature = HexUtils.hexStringToInt(tdata["data"].join())/ 10
+                        displayInfoLog("CURRENT ROOM TEMP: ${Temperature}")
+						sendEvent(name: "temperature", value: temperature, unit: "C" )
 					break
 								
 					case '0404': // Mode
@@ -726,7 +734,7 @@ void configure() {
 		"zdo bind 0x${device.deviceNetworkId} ${endpointId} 0x01 0x0005 {${device.zigbeeId}} {}", "delay 200",	// ?
 		"zdo bind 0x${device.deviceNetworkId} ${endpointId} 0x01 0xefOO {${device.zigbeeId}} {}", "delay 200"	// TUYA CLUSTER FOR PROPRIETARY COMMANDS    
     ]
-    sendZigbeeCommands(cmd)
+    sendZigbeeCommands(cmds)
 }
 
 //
