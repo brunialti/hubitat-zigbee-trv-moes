@@ -9,18 +9,51 @@
  *  Unless required by applicable law or agreed to in writing, software distributed under the License is distributed
  *  on an "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied. See the License
  *  for the specific language governing permissions and limitations under the License.
- *  CONNECT: short press home (turn on), long press home (enter settings), go to setting 5 (wifi logo), press home (only wifi now showing), long press home (wifi now blinking) 
+ * 
+ * TO CONNECT: short press home (turn on), long press home (enter settings), go to setting 5 (wifi logo), press home (only wifi now showing), long press home (wifi now blinking) 
+ *
  * KNOWN ERRORS
  * 1 - groovy.lang.GroovyRuntimeException: Cannot read write-only property: schedule on line 544 (refresh)        
  *     schedule("${rnd.nextInt(59)} ${rnd.nextInt(59)} 1/3 * * ? *", 'checkPresence')
  *
- * 
  * UNKNOWN MESSAGES
+ * 0104 000A 01 01 0040 00 962D 00 00 0000 00 00 0700 <--?
+ * 0104 EF00 01 01 0040 00 962D 01 00 0000 24 01 0074 <--after installing
+ * 0104 EF00 01 01 0040 00 962D 01 00 0000 01 01 19056602000400000005
+ * 0104 EF00 01 01 0040 00 962D 01 00 0000 01 01 19066702000400000016
+ * 0104 EF00 01 01 0040 00 962D 01 00 0000 01 01 190702020004000000C
+ * 0104 EF00 01 01 0040 00 962D 01 00 0000 01 01 19080302000400000131
+ * 0104 EF00 01 01 0040 00 962D 01 00 0000 01 01 19090302000400000131
+ * 0104 EF00 01 01 0040 00 962D 01 00 0000 01 01 190A0404000102
+ * 0104 EF00 01 01 0040 00 962D 01 00 0000 01 01 190B0404000102
+ * 0104 EF00 01 01 0040 00 962D 01 00 0000 01 01 190C0701000100
+ * 0104 EF00 01 01 0040 00 962D 01 00 0000 01 01 190D0D05000100
+ * 0104 EF00 01 01 0040 00 962D 01 00 0000 01 01 190E2C0200040000005A
+ * 0104 EF00 01 01 0040 00 962D 01 00 0000 01 01 190F6800000301060A
+ * 0104 EF00 01 01 0040 00 962D 01 00 0000 01 01 1910690200040000012C
+ * 0104 EF00 01 01 0040 00 962D 01 00 0000 01 01 19116A04000100
+ * 0104 EF00 01 01 0040 00 962D 01 00 0000 01 01 19126B02000400000014
+ * 0104 EF00 01 01 0040 00 962D 01 00 0000 01 01 19136C0200040000000F
+ * 0104 EF00 01 01 0040 00 962D 01 00 0000 01 01 19146D02000400000000
+ * 0104 EF00 01 01 0040 00 962D 01 00 0000 01 01 19156E01000100
+ * 0104 EF00 01 01 0040 00 962D 01 00 0000 01 01 19166F04000102
+ * 0104 EF00 01 01 0040 00 962D 01 00 0000 01 01 19177000001286001608000F0B1E0F0C1E0F141E14160014
+ * 0104 EF00 01 01 0040 00 962D 01 00 0000 01 01 19187100001206001408000F0B1E0F0C1E0F0F1E1416000F
+ * 0104 EF00 01 01 0040 00 962D 01 00 0000 01 01 1919720200040000000F
+ * 0104 EF00 01 01 0040 00 962D 01 00 0000 01 01 191A7301000100
+ * 0104 EF00 01 01 0040 00 962D 01 00 0000 01 01 191B7401000101
+ * 0104 EF00 01 01 0040 00 962D 01 00 0000 01 01 191C7502000400000001
+ * 0104 EF00 01 01 0040 00 962D 01 00 0000 11 01 007680
+ *
  * 0104 EF00 01 01 0040 00 B06F 01 00 0000 24 01 004E <--after configure
  * 0104 EF00 01 01 0040 00 B06F 01 00 0000 24 01 0000
+ * 0104 EF00 01 01 0040 00 9D33 01 00 0000 01 01 1B3C0701000101 <-- tuya command 0701
+ *
  * The following seems temperature reports. Cluster 0203?
  * 0104 EF00 01 01 0040 00 B06F 01 00 0000 01 01 174C720200040000000F <-- after thermostat mode setingz
  * 0104 EF00 01 01 0040 00 B06F 01 00 0000 01 01 18C00302000400000122
+ *
+ * https://github.com/pipiche38/Domoticz-Zigate/blob/4276f21030850b7f48893864fbe0c9ecfabb2ca8/Modules/tuya.py
 **/
 
 import hubitat.zigbee.zcl.DataType
@@ -29,7 +62,10 @@ import hubitat.helper.HexUtils
 import groovy.json.JsonOutput
 import groovy.json.JsonSlurper
 
-def getVersionNum() { return "0.0.1" }
+import java.security.MessageDigest
+
+
+def getVersionNum() { return "0.0.2" }
 private def getVersionLabel() { return "Tuya TRV TS0601" }
 private String getDriverVersion() {
     comment = getVersionLabel()
@@ -42,6 +78,8 @@ private String getDriverVersion() {
 
 metadata {
     definition (name: "My Tuya TRV", namespace: "r.brunialti", author: "r.brunialti") {
+        
+        capability "Battery"
         capability "Configuration"
         capability "TemperatureMeasurement"
         capability "Thermostat"
@@ -54,7 +92,12 @@ metadata {
         attribute "WindowOpenDetection","String"
         attribute "autolock","String"
         attribute "childLock","String"
-       
+        attribute "lastCheckin", "Date"
+        attribute "lastCheckinEpoch", "number"
+        attribute "notPresentCounter", "number"
+        attribute "restoredCounter", "number"
+        attribute "batteryLastReplaced", "String"
+
         command "resetRestoredCounter"
         command "resetBatteryReplacedDate"
         command "configure"
@@ -66,6 +109,8 @@ metadata {
         //Logging Message Config
         input(name: "presenceEnable", type: "bool", title: styling_addTitleDiv("Enable Presence"), description: styling_addDescriptionDiv("Enables Presence to indicate if the device has sent data within the last 3 hours (REQUIRES at least one of the Checkin options to be enabled)"), defaultValue: true)
         input(name: "presenceWarningEnable", type: "bool", title: styling_addTitleDiv("Enable Presence Warning"), description: styling_addDescriptionDiv("Enables Presence Warnings in the Logs (default: true)"), defaultValue: true)
+        input(name: "lastCheckinEnable", type: "bool", title: styling_addTitleDiv("Enable Last Checkin Date"), description: styling_addDescriptionDiv("Records Date events if enabled"), defaultValue: true)
+        input(name: "lastCheckinEpochEnable", type: "bool", title: styling_addTitleDiv("Enable Last Checkin Epoch"), description: styling_addDescriptionDiv("Records Epoch events if enabled"), defaultValue: false)      
 		
         //Battery Voltage Range
  		input name: "voltsmin", title: "Min Volts (0% battery = ___ volts, range 2.0 to 2.9). Default = 2.5 Volts", description: "", type: "decimal", range: "2..2.7"
@@ -83,7 +128,66 @@ def parse(String description) {
     // lastCheckin can be used with webCoRE
     sendEvent(name: "lastCheckin", value: new Date().format("dd/mm/yyyy hh:mm:ss a", location.timeZone))
     
-    def msgMap = zigbee.parseDescriptionAsMap(description)
+    // BEGIN:getGenericZigbeeParseHeader(loglevel=0)
+    //logging("PARSE START---------------------", 0)
+    //logging("Parsing: '${description}'", 0)
+    ArrayList<String> cmd = []
+    Map msgMap = null
+    if(description.indexOf('encoding: 4C') >= 0) {
+    
+      msgMap = zigbee.parseDescriptionAsMap(description.replace('encoding: 4C', 'encoding: F2'))
+    
+      msgMap = unpackStructInMap(msgMap)
+    
+    } else if(description.indexOf('attrId: FF01, encoding: 42') >= 0) {
+      msgMap = zigbee.parseDescriptionAsMap(description.replace('encoding: 42', 'encoding: F2'))
+      msgMap["encoding"] = "41"
+      msgMap["value"] = parseXiaomiStruct(msgMap["value"], isFCC0=false, hasLength=true)
+    } else {
+      if(description.indexOf('encoding: 42') >= 0) {
+        List values = description.split("value: ")[1].split("(?<=\\G..)")
+        String fullValue = values.join()
+        Integer zeroIndex = values.indexOf("01")
+        if(zeroIndex > -1) {
+    
+          //logging("zeroIndex: $zeroIndex, fullValue: $fullValue, string: ${values.take(zeroIndex).join()}", 0)
+          msgMap = zigbee.parseDescriptionAsMap(description.replace(fullValue, values.take(zeroIndex).join()))
+    
+          values = values.drop(zeroIndex + 3)
+          msgMap["additionalAttrs"] = [
+              ["encoding": "41",
+              "value": parseXiaomiStruct(values.join(), isFCC0=false, hasLength=true)]
+          ]
+        } else {
+          msgMap = zigbee.parseDescriptionAsMap(description)
+        }
+      } else {
+        msgMap = zigbee.parseDescriptionAsMap(description)
+      }
+    
+      if(msgMap.containsKey("encoding") && msgMap.containsKey("value") && msgMap["encoding"] != "41" && msgMap["encoding"] != "42") {
+        msgMap["valueParsed"] = zigbee_generic_decodeZigbeeData(msgMap["value"], msgMap["encoding"])
+      }
+      if(msgMap == [:] && description.indexOf("zone") == 0) {
+    
+        msgMap["type"] = "zone"
+        java.util.regex.Matcher zoneMatcher = description =~ /.*zone.*status.*0x(?<status>([0-9a-fA-F][0-9a-fA-F])+).*extended.*status.*0x(?<statusExtended>([0-9a-fA-F][0-9a-fA-F])+).*/
+        if(zoneMatcher.matches()) {
+          msgMap["parsed"] = true
+          msgMap["status"] = zoneMatcher.group("status")
+          msgMap["statusInt"] = Integer.parseInt(msgMap["status"], 16)
+          msgMap["statusExtended"] = zoneMatcher.group("statusExtended")
+          msgMap["statusExtendedInt"] = Integer.parseInt(msgMap["statusExtended"], 16)
+        } else {
+          msgMap["parsed"] = false
+        }
+      }
+    }
+    //logging("msgMap: ${msgMap}", 0)
+    // END:  getGenericZigbeeParseHeader(loglevel=0)
+
+    
+    // def msgMap = zigbee.parseDescriptionAsMap(description)
     def cluster = msgMap["clusterId"]
 
     //displayDebugLog("Parsed message: ${msgMap}")      
@@ -100,7 +204,9 @@ def parse(String description) {
             updateDataFromSimpleDescriptorData(msgMap["data"])
         }
         else if (cluster == "8021"){
-            displayInfoLog("BIND RESPONSE CLUSTER EVENT")
+            if(msgMap["data"] != []) {
+                displayInfoLog("BIND CONFIRMATION: 0x${msgMap["data"][0]}")
+            }
         }
         else if (cluster == "8031"){
             displayInfoLog("Link Quality Cluster Event - description:${description} | parseMap:${msgMap}")
@@ -114,39 +220,35 @@ def parse(String description) {
         else if (cluster == "EF00"){
             def data = msgMap["data"]
             //FILTER CASE MSG LEN>4
-            if (data.size()<4){
-                displayDebugLog("[1] Cluster ${cluster} - Unknown format - ${msgMap}")
+            if (data.size()<6){
+                displayDebugLog("[1] Cluster ${cluster} - cmd too short - ${msgMap}")
                 }
             else{
                 def tdata = tuyaMap(msgMap["data"])
-//                displayDebugLog("TUYAMAP: ${tdata}")
+                displayDebugLog("TUYAMAP: ${tdata}")
 				switch(tdata["dp"]){
-					
+				
                     case "0202": //target set point temp
 						String SetPoint = HexUtils.hexStringToInt(tdata["data"].join()) / 10
-						displayInfoLog("NEW TEMP SETPOINT: ${SetPoint}")
+						displayInfoLog("CURENT TEMP SETPOINT: ${SetPoint}")
 						sendEvent(name: "heatingSetpoint", value: SetPoint, unit: "C")
 						sendEvent(name: "thermostatSetpoint", value: SetPoint, unit: "C")
-						if (device.currentValue("thermostatMode") != "off" && SetPoint.toFloat() > device.currentValue("temperature").toFloat()) { 
+                        if (device.currentValue("thermostatMode") != "off" && SetPoint.toFloat() > device.currentValue("temperature").toFloat()) { 
 							sendEvent(name: "thermostatOperatingState", value: "heating")}
 						else { sendEvent(name: "thermostatOperatingState", value: "idle")}
 					break
 
+					case '0303': //@?
+					case '0302': //@Set Temperature aknowledge?
                     case '0203': //@Room Temperature report?
 						String temperature = HexUtils.hexStringToInt(tdata["data"].join())/ 10
-                        displayInfoLog("SET ROOM TEMP ACK: ${Temperature}")
+                        displayInfoLog("CURRENT ROOM TEMPERATURE: ${temperature}")
 						sendEvent(name: "temperature", value: temperature, unit: "C" )
 						if (device.currentValue("thermostatMode") != "off" && temperature.toFloat() < device.currentValue("thermostatSetpoint").toFloat()) {
 							sendEvent(name: "thermostatOperatingState", value: "heating")}
 						else { sendEvent(name: "thermostatOperatingState", value: "idle")}
 					break
 
-					case '0302': //@Set Temperature aknowledge?
-						String temperature = HexUtils.hexStringToInt(tdata["data"].join())/ 10
-                        displayInfoLog("CURRENT ROOM TEMP: ${Temperature}")
-						sendEvent(name: "temperature", value: temperature, unit: "C" )
-					break
-								
 					case '0404': // Mode
 						String mode = HexUtils.hexStringToInt(tdata["data"].join())
 					    def smode="?"
@@ -163,12 +265,15 @@ def parse(String description) {
                                 smode="heat"
 							break
 						}
-                        if (smode!="?")
+                        if (smode!="?"){
 					        sendEvent(name: "thermostatMode", value: smode )
-				        displayInfoLog("NEW THERMOSTAT MODE:${smode}")
+				            displayInfoLog("NEW THERMOSTAT MODE:${smode}")
+                        }
+                        else
+				            displayInfoLog("UNKNOWN THERMOSTAT MODE:${smode}")
 					break
 
-                    case '0215': // battery ?
+                    case '0215': // battery
 						String volt = HexUtils.hexStringToInt(tdata["data"].join())/ 10
                         displayDebugLog("BATTERY VOLTS (raw value):${volt}")
                         parseAndSendBatteryStatus(Integer.parseInt(volt, 16) / 10.0)
@@ -263,6 +368,15 @@ def parse(String description) {
             default:
                 displayDebugLog("[3] Cluster ${cluster} - Unknown attribute - ${msgMap}")      
                 break
+        }
+    }
+    else if (cluster == "0001"){
+    	// battery report
+        switch (msgMap["attrId"]) {
+            case "0020":
+                displayDebugLog("0001 -BATTERY REPORT - VOLTS: ${msgMap}")      
+            case "0021":
+                displayDebugLog("0001 - BATTERY REPORT - PERCENTAGE: ${msgMap}")      
         }
     }
     else if (cluster == "0004"){
@@ -447,7 +561,7 @@ void parseAndSendBatteryStatus(BigDecimal vCurrent) {
 
 //Reset the batteryLastReplaced date to current date
 def resetBatteryReplacedDate(paired) {
-	displayInfoLog("Setting Battery Last Replace date")
+	displayInfoLog("SETTING BATTERY LAST REPLACE DATE")
 	sendEvent(name: "batteryLastReplaced", value: new Date().format("dd/mm/yyyy hh:mm:ss a", location.timeZone))
     }
 
@@ -480,16 +594,21 @@ private def displayDebugLog(message) {
 ArrayList<String> refresh() {    
     getDriverVersion()
     configurePresence()
-    startCheckEventInterval()
+    //startCheckEventInterval()
+    resetBatteryReplacedDate(forced=false)
     setLogsOffTask(noLogWarning=true)
-    
+    setCleanModelName(newModelToSet=null, acceptedModels=["TS0601"])
     ArrayList<String> cmd = []
-    cmd += zigbee.readAttribute(0x0000, 0x0005) //@CHECK
-    cmd += zigbee.readAttribute(0x0006, 0x0000) //@CHECK
-    logging("refresh cmd: $cmd", 1)
-    sendZigbeeCommands(cmd)
+    return cmd
 }
 
+/*
+//
+void refresh(String cmd) {
+    deviceCommand(cmd)
+}
+*/
+                      
 //
 def initialize() {
     logging("initialize()", 100)
@@ -525,11 +644,25 @@ Integer getMINUTES_BETWEEN_EVENTS() {
 }
 
 //
+void configurePresence() {
+    prepareCounters()
+    if(presenceEnable == null || presenceEnable == true) {
+        Random rnd = new Random()
+        schedule("${rnd.nextInt(59)} ${rnd.nextInt(59)} 1/3 * * ? *", 'checkPresence')
+        checkPresence(false)
+    } else {
+        sendEvent(name: "presence", value: "not present", descriptionText: "Presence Checking Disabled" )
+        unschedule('checkPresence')
+    }
+}
+
+//
 boolean checkPresence(boolean displayWarnings=true) {
     boolean isPresent = false
     Long lastCheckinTime = null
     String lastCheckinVal = device.currentValue('lastCheckin')
-    if ((lastCheckinEnable == true || lastCheckinEnable == null) && isValidDate('yyyy-MM-dd HH:mm:ss', lastCheckinVal) == true) {
+    //if ((lastCheckinEnable == true || lastCheckinEnable == null) && isValidDate('yyyy-MM-dd HH:mm:ss', lastCheckinVal) == true) {
+    if ((lastCheckinEnable == true || lastCheckinEnable == null) && isValidDate(lastCheckinVal) == true) {
         lastCheckinTime = Date.parse('yyyy-MM-dd HH:mm:ss', lastCheckinVal).getTime()
     } else if (lastCheckinEpochEnable == true && device.currentValue('lastCheckinEpoch') != null) {
         lastCheckinTime = device.currentValue('lastCheckinEpoch').toLong()
@@ -551,21 +684,6 @@ boolean checkPresence(boolean displayWarnings=true) {
     return isPresent
 }
 
-//
-void configurePresence() {
-    prepareCounters()
-    if(presenceEnable == null || presenceEnable == true) {
-        Random rnd = new Random()
-        schedule("${rnd.nextInt(59)} ${rnd.nextInt(59)} 1/3 * * ? *", 'checkPresence')
-        checkPresence(false)
-    } else {
-        sendEvent(name: "presence", value: "not present", descriptionText: "Presence Checking Disabled" )
-        unschedule('checkPresence')
-    }
-}
-
-/*
-//
 void checkEventInterval(boolean displayWarnings=true) {
     logging("recoveryMode: $recoveryMode", 1)
     if(recoveryMode == "Disabled") {
@@ -585,7 +703,21 @@ void checkEventInterval(boolean displayWarnings=true) {
         sendZigbeeCommands(zigbee.readAttribute(CLUSTER_BASIC, 0x0004))
     }
 }
-*/
+    
+//
+void startCheckEventInterval() {
+    if(recoveryMode != "Disabled") {
+        logging("Recovery feature ENABLED", 100)
+        Random rnd = new Random()
+        schedule("${rnd.nextInt(59)} ${rnd.nextInt(59)}/59 * * * ? *", 'checkEventInterval')
+        checkEventInterval(displayWarnings=true)
+    } else {
+        logging("Recovery feature DISABLED", 100)
+        unschedule('checkEventInterval')
+        unschedule('recoveryEvent')
+        unschedule('reconnectEvent')
+    }
+}
 
 //
 Long secondsSinceLastCheckinEvent() {
@@ -610,25 +742,6 @@ Long secondsSinceLastCheckinEvent() {
     return r
 }
 
-/*
-//
-void startCheckEventInterval() {
-    logging("startCheckEventInterval()", 1)
-    if(recoveryMode != "Disabled") {
-        logging("Recovery feature ENABLED", 100)
-        Random rnd = new Random()
-        schedule("${rnd.nextInt(59)} ${rnd.nextInt(59)}/59 * * * ? *", 'checkEventInterval')
-        checkEventInterval(displayWarnings=true)
-    } else {
-        logging("Recovery feature DISABLED", 100)
-        unschedule('checkEventInterval')
-        unschedule('recoveryEvent')
-        unschedule('reconnectEvent')
-    }
-}
-*/
-
-/*
 //
 boolean hasCorrectCheckinEvents(Integer maximumMinutesBetweenEvents=90, boolean displayWarnings=true) {
     Long secondsSinceLastCheckin = secondsSinceLastCheckinEvent()
@@ -638,7 +751,6 @@ boolean hasCorrectCheckinEvents(Integer maximumMinutesBetweenEvents=90, boolean 
     }
     return true
 }
-*/
 
 //
 void setAsPresent() {
@@ -716,38 +828,80 @@ String styling_getDefaultCSS(boolean includeTags=true) {
         return defaultCSS
     }
 }
+
+//
+private boolean logging(message, level) {
+    boolean didLogging = false
+     
+    Integer logLevelLocal = 0
+    if (infoLogging == null || infoLogging == true) {
+        logLevelLocal = 100
+    }
+    if (debugLogging == true) {
+        logLevelLocal = 1
+    }
+     
+    if (logLevelLocal != 0){
+        switch (logLevelLocal) {
+        case 1:  
+            if (level >= 1 && level < 99) {
+                log.debug "$message"
+                didLogging = true
+            } else if (level == 100) {
+                log.info "$message"
+                didLogging = true
+            }
+        break
+        case 100:  
+            if (level == 100 ) {
+                log.info "$message"
+                didLogging = true
+            }
+        break
+        }
+    }
+    return didLogging
+}
+
 //============================
 //============================
 
 //
 void configure() {
     Integer endpointId = 1
-    ArrayList<String> cmd = []
+    ArrayList<String> cmds = []
 
     displayDebugLog("Configuration starting")
 
     sendEvent(name: "supportedThermostatModes", value: ["off", "heat", "auto"] )
     
-    def cmds=[
-		"zdo bind 0x${device.deviceNetworkId} ${endpointId} 0x01 0x0000 {${device.zigbeeId}} {}", "delay 200",	// ?
-        "zdo bind 0x${device.deviceNetworkId} ${endpointId} 0x01 0x0004 {${device.zigbeeId}} {}", "delay 200",	// ?
-		"zdo bind 0x${device.deviceNetworkId} ${endpointId} 0x01 0x0005 {${device.zigbeeId}} {}", "delay 200",	// ?
-		"zdo bind 0x${device.deviceNetworkId} ${endpointId} 0x01 0xefOO {${device.zigbeeId}} {}", "delay 200"	// TUYA CLUSTER FOR PROPRIETARY COMMANDS    
-    ]
+    cmds=[
+		"zdo bind 0x${device.deviceNetworkId} ${endpointId} 0x01 0x0000 {${device.zigbeeId}} {}", 	// ?
+		"zdo bind 0x${device.deviceNetworkId} ${endpointId} 0x01 0x0001 {${device.zigbeeId}} {}", 	// POWER CONFIGURATION
+        "zdo bind 0x${device.deviceNetworkId} ${endpointId} 0x01 0x0004 {${device.zigbeeId}} {}", 	// ?
+		"zdo bind 0x${device.deviceNetworkId} ${endpointId} 0x01 0x0005 {${device.zigbeeId}} {}", 	// ?
+		"zdo bind 0x${device.deviceNetworkId} ${endpointId} 0x01 0x0006 {${device.zigbeeId}} {}", 	// ?
+		"zdo bind 0x${device.deviceNetworkId} ${endpointId} 0x01 0xefOO {${device.zigbeeId}} {}" 	// TUYA CLUSTER FOR PROPRIETARY COMMANDS
+   ]
+    
+    //CONFIGURE REPORTS
+    cmds += zigbee.configureReporting(0x0001, 0x0020, 0x20, 3509, 3600, null, [:], 100) //BatteryVoltage
+    cmds += zigbee.configureReporting(0x0001, 0x0021, 0x20, 3509, 3600, null, [:], 100) //BatteryPercentageRemaining
+    //READ ATTRIBUTE
+
     sendZigbeeCommands(cmds)
 }
 
-//
+void sendZigbeeCommand(String cmd) {
+    logging("sendZigbeeCommand($cmd)", 1)
+    sendZigbeeCommands([cmd])
+}
+
 void sendZigbeeCommands(ArrayList<String> cmd) {
-    displayDebugLog("sendZigbeeCommands ($cmd)")
+    displayDebugLog("sendZigbeeCommands($cmd)")
     hubitat.device.HubMultiAction allActions = new hubitat.device.HubMultiAction()
     cmd.each {
-    //displayDebugLog(">>>>>$it")
-        if(it.startsWith('delay')) {
-            allActions.add(new hubitat.device.HubAction(it))
-        } else {
             allActions.add(new hubitat.device.HubAction(it, hubitat.device.Protocol.ZIGBEE))
-        }
     }
     sendHubCommand(allActions)
 }
